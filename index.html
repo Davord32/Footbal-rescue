@@ -4,150 +4,98 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
-        body { margin: 0; overflow: hidden; background: #1a472a; touch-action: none; font-family: 'Arial Black', sans-serif; }
-        #menu { position: absolute; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; color: white; text-align: center; }
-        .flag-btn { padding: 10px 20px; margin: 5px; font-size: 18px; background: #34495e; color: white; border: 2px solid white; border-radius: 10px; }
-        .start-btn { padding: 20px 60px; font-size: 28px; background: #2ecc71; border: none; border-radius: 50px; color: white; margin-top: 20px; box-shadow: 0 5px #1a6d3a; }
-        #ui { position: absolute; top: 20px; width: 100%; display: none; justify-content: space-around; color: white; font-size: 20px; z-index: 10; pointer-events: none; }
+        body { margin: 0; overflow: hidden; background: #27ae60; touch-action: none; font-family: sans-serif; }
+        #ui { position: absolute; top: 10px; width: 100%; display: flex; justify-content: space-around; color: white; font-weight: bold; text-shadow: 2px 2px black; z-index: 10; }
+        #msg { position: absolute; top: 50%; width: 100%; text-align: center; color: white; font-size: 24px; font-weight: bold; }
     </style>
 </head>
 <body>
-    <div id="menu">
-        <h1 style="color:#f1c40f; font-size: 40px;">SOCCER RESCUE</h1>
-        <p>Izaberi svoju državu:</p>
-        <div>
-            <button class="flag-btn" onclick="setFlag('🇷🇸 SRB')">🇷🇸 SRB</button>
-            <button class="flag-btn" onclick="setFlag('🇧🇷 BRA')">🇧🇷 BRA</button>
-            <button class="flag-btn" onclick="setFlag('🇦🇷 ARG')">🇦🇷 ARG</button>
-        </div>
-        <button class="start-btn" id="sBtn" style="display:none;" onclick="startGame()">POČNI IGRAJU</button>
-    </div>
-    
     <div id="ui">
-        <div>ZEMLJA: <span id="user-flag">-</span></div>
-        <div>TIM: <span id="team-count">1</span></div>
-        <div>SCORE: <span id="dist">0</span>m</div>
+        <div>TIM: <span id="tc">1</span></div>
+        <div>SCORE: <span id="sc">0</span></div>
     </div>
+    <div id="msg">DODIRNI EKRAN DA KRENEŠ!</div>
 
-    <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        let scene, camera, renderer, player, isRunning = false;
-        let targetX = 0, distance = 0, speed = 0.3, selectedFlag = "";
-        let obstacles = [], legends = [], team = [];
-
-        function setFlag(flag) {
-            selectedFlag = flag;
-            document.getElementById('user-flag').innerText = flag;
-            document.getElementById('sBtn').style.display = 'block';
-        }
+        let scene, camera, renderer, player, active = false;
+        let score = 0, obstacles = [], speed = 0.4;
 
         function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x27ae60);
-            scene.fog = new THREE.Fog(0x27ae60, 15, 65);
-
+            
             camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 6, 12);
+            camera.position.set(0, 5, 10);
+            camera.lookAt(0, 0, 0);
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
             document.body.appendChild(renderer.domElement);
 
-            scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-            let sun = new THREE.DirectionalLight(0xffffff, 1);
-            sun.position.set(5, 15, 10);
-            scene.add(sun);
+            const light = new THREE.DirectionalLight(0xffffff, 1);
+            light.position.set(0, 10, 10);
+            scene.add(light);
+            scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 
-            const ground = new THREE.Mesh(new THREE.PlaneGeometry(20, 10000), new THREE.MeshPhongMaterial({color: 0x2ecc71}));
+            // Igrac (Lopta)
+            const geo = new THREE.SphereGeometry(0.5, 16, 16);
+            const mat = new THREE.MeshPhongMaterial({color: 0xffffff});
+            player = new THREE.Mesh(geo, mat);
+            player.position.y = 0.5;
+            scene.add(player);
+
+            // Podloga
+            const gGeo = new THREE.PlaneGeometry(20, 1000);
+            const gMat = new THREE.MeshPhongMaterial({color: 0x2ecc71});
+            const ground = new THREE.Mesh(gGeo, gMat);
             ground.rotation.x = -Math.PI/2;
             scene.add(ground);
 
-            player = createCharacter(0xffff00); 
-            scene.add(player);
-            team.push(player);
+            // Generisanje prepreka odmah
+            for(let i=0; i<10; i++) spawnObs(-i * 30 - 20);
 
+            window.addEventListener('touchstart', () => { 
+                active = true; 
+                document.getElementById('msg').style.display = 'none';
+            });
+            
             window.addEventListener('touchmove', (e) => {
-                targetX = (e.touches[0].clientX / window.innerWidth - 0.5) * 12;
+                let touch = e.touches[0];
+                let x = (touch.clientX / window.innerWidth) * 2 - 1;
+                player.position.x = x * 5;
             });
 
-            for(let i=1; i<15; i++) {
-                spawnObstacle(-i * 40);
-                if(i % 4 === 0) spawnLegend(-i * 50);
-            }
             animate();
         }
 
-        function createCharacter(color) {
-            const group = new THREE.Group();
-            const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 0.8), new THREE.MeshPhongMaterial({color: color}));
-            body.position.y = 1;
-            group.add(body);
-            const ball = new THREE.Mesh(new THREE.SphereGeometry(0.25), new THREE.MeshPhongMaterial({color: 0xffffff}));
-            ball.position.set(0, 0.2, -0.7);
-            group.add(ball);
-            return group;
-        }
-
-        function spawnObstacle(z) {
-            const obs = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshPhongMaterial({color: 0x333333}));
-            obs.position.set(Math.random()*10-5, 1, z);
+        function spawnObs(z) {
+            const oGeo = new THREE.BoxGeometry(2, 2, 2);
+            const oMat = new THREE.MeshPhongMaterial({color: 0xff0000});
+            const obs = new THREE.Mesh(oGeo, oMat);
+            obs.position.set(Math.random()*8-4, 1, z);
             scene.add(obs);
             obstacles.push(obs);
         }
 
-        function spawnLegend(z) {
-            const leg = createCharacter(0xffffff);
-            leg.position.set(Math.random()*8-4, 0, z);
-            // Dodaj kavez (providna plava kocka)
-            const cage = new THREE.Mesh(new THREE.BoxGeometry(2.5, 3, 2.5), new THREE.MeshPhongMaterial({color: 0x00aaff, transparent: true, opacity: 0.3}));
-            cage.position.y = 1.5;
-            leg.add(cage);
-            scene.add(leg);
-            legends.push(leg);
-        }
-
-        function startGame() {
-            isRunning = true;
-            document.getElementById('menu').style.display = 'none';
-            document.getElementById('ui').style.display = 'flex';
-        }
-
         function animate() {
             requestAnimationFrame(animate);
-            if(isRunning) {
+            if(active) {
                 player.position.z -= speed;
-                player.position.x += (targetX - player.position.x) * 0.12;
-                distance += speed;
-                document.getElementById('dist').innerText = Math.floor(distance);
-
-                for(let i=1; i<team.length; i++) {
-                    team[i].position.z = player.position.z + (i * 1.8);
-                    team[i].position.x += (team[i-1].position.x - team[i].position.x) * 0.15;
-                }
-
                 camera.position.z = player.position.z + 10;
-                camera.lookAt(player.position.x, 1, player.position.z - 5);
+                score++;
+                document.getElementById('sc').innerText = Math.floor(score/10);
 
-                obstacles.forEach((obs) => {
-                    if(player.position.distanceTo(obs.position) < 1.6) {
-                        isRunning = false;
-                        alert("GAME OVER! Spasio si " + (team.length-1) + " legendi za " + selectedFlag);
+                obstacles.forEach(o => {
+                    if(o.position.distanceTo(player.position) < 1.5) {
+                        active = false;
+                        alert("KRAJ! Rezultat: " + Math.floor(score/10));
                         location.reload();
                     }
-                    if(obs.position.z > player.position.z + 10) {
-                        obs.position.z = player.position.z - 200;
-                        obs.position.x = Math.random()*10-5;
-                    }
-                });
-
-                legends.forEach((leg, i) => {
-                    if(player.position.distanceTo(leg.position) < 2) {
-                        // Ukloni kavez (poslednji dodat objekat u grupi legende)
-                        leg.remove(leg.children[2]); 
-                        team.push(leg);
-                        legends.splice(i, 1);
-                        document.getElementById('team-count').innerText = team.length;
-                        speed += 0.015;
+                    if(o.position.z > player.position.z + 10) {
+                        o.position.z -= 200;
+                        o.position.x = Math.random()*8-4;
                     }
                 });
             }
